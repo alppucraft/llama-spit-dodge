@@ -1,0 +1,526 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Llama Spit Dodge</title>
+  <style>
+    * { box-sizing: border-box; }
+    html, body { height: 100%; }
+    body {
+      margin: 0;
+      display: grid;
+      place-items: center;
+      overflow: hidden;
+      color: #fff7d6;
+      background: #17122b;
+      font-family: monospace;
+    }
+    main { width: min(960px, 100%); padding: 12px; text-align: center; }
+    .panel { max-width: 620px; margin: 0 auto; padding: 24px; border: 6px solid #fff7d6; background: #342650; }
+    .hidden { display: none !important; }
+    button, input {
+      margin: 6px;
+      padding: 10px 14px;
+      border: 3px solid #fff7d6;
+      color: #17122b;
+      background: #ffd45c;
+      font: bold 16px monospace;
+    }
+    input { background: #fff7d6; }
+    button { cursor: pointer; }
+    button:disabled { cursor: not-allowed; opacity: .45; }
+    #partyList button { display: block; width: 100%; margin: 8px 0; }
+    #members { padding: 0; list-style: none; font-size: 18px; }
+    #status { min-height: 20px; color: #ff9aac; }
+    h1 { margin: 0 0 10px; color: #ffd45c; font-size: clamp(22px, 4vw, 38px); }
+    canvas {
+      display: block;
+      width: 100%;
+      aspect-ratio: 16 / 9;
+      border: 6px solid #fff7d6;
+      background: #75c9c8;
+      image-rendering: pixelated;
+    }
+    p { margin: 10px 0 0; font-size: clamp(13px, 2vw, 18px); }
+    kbd { color: #17122b; background: #ffd45c; padding: 3px 9px; border: 2px solid #fff7d6; }
+  </style>
+</head>
+<body>
+  <main>
+    <h1>LLAMA SPIT DODGE</h1>
+    <section id="menu" class="panel">
+      <h2>CHOOSE A MODE</h2>
+      <button id="singleButton">SINGLE PLAYER</button>
+      <button id="multiButton">MULTIPLAYER</button>
+    </section>
+
+    <section id="lobby" class="panel hidden">
+      <div id="partyBrowser">
+        <h2>MULTIPLAYER LOBBY</h2>
+        <label for="playerName">YOUR PLAYER NAME</label><br>
+        <input id="playerName" maxlength="16" placeholder="Your name">
+        <hr>
+        <h3>CREATE YOUR OWN PARTY</h3>
+        <input id="partyName" maxlength="24" placeholder="New party name">
+        <button id="createButton">CREATE PARTY</button>
+        <hr>
+        <h3>ALL OPEN PARTIES</h3>
+        <div id="partyList">Connecting…</div>
+      </div>
+      <div id="partyRoom" class="hidden">
+        <h2 id="roomName"></h2>
+        <p>Party code: <strong id="roomCode"></strong></p>
+        <ul id="members"></ul>
+        <button id="startButton">START GAME</button>
+        <p>At least two players are needed.</p>
+      </div>
+      <p id="status"></p>
+      <button id="backButton">BACK</button>
+    </section>
+
+    <section id="gameArea" class="hidden">
+      <canvas id="game" width="800" height="450" aria-label="Llama Spit Dodge game"></canvas>
+      <p id="controls"><kbd>SPACE</kbd> jump &nbsp;•&nbsp; 2 second cooldown</p>
+    </section>
+  </main>
+
+  <script>
+    const canvas = document.querySelector('#game');
+    const ctx = canvas.getContext('2d');
+    ctx.imageSmoothingEnabled = false;
+
+    const menu = document.querySelector('#menu');
+    const lobby = document.querySelector('#lobby');
+    const gameArea = document.querySelector('#gameArea');
+    const partyBrowser = document.querySelector('#partyBrowser');
+    const partyRoom = document.querySelector('#partyRoom');
+    const partyList = document.querySelector('#partyList');
+    const membersList = document.querySelector('#members');
+    const statusLine = document.querySelector('#status');
+    const controls = document.querySelector('#controls');
+
+    let playMode = 'menu';
+    let socket = null;
+    let myId = null;
+    let myRole = null;
+    let currentParty = null;
+    let multiplayerState = null;
+    let multiplayerMessage = '';
+
+    const W = canvas.width;
+    const H = canvas.height;
+    const ground = 370;
+    const player = { x: 650, y: ground - 64, w: 38, h: 64 };
+    const llama = { x: 80, y: ground - 150 };
+
+    let state = 'title';
+    let score = 0;
+    let best = 0;
+    let spit = null;
+    let warningUntil = 0;
+    let nextAttack = 0;
+    let cooldownUntil = 0;
+    let dodgeStyle = 0;
+    let playerY = player.y;
+    let jumpSpeed = 0;
+    let spaceHeld = false;
+    let holdUntil = 0;
+    let lastTime = 0;
+    let heightBag = [];
+
+    const now = () => performance.now() / 1000;
+    const randomAttackDelay = () => 2.4 + Math.random() * 3.8;
+
+    function nextSpitHeight() {
+      if (!heightBag.length) {
+        heightBag = [ground - 31, ground - 31, ground - 31, ground - 68, ground - 68, ground - 105];
+        for (let i = heightBag.length - 1; i > 0; i--) {
+          const j = Math.floor(Math.random() * (i + 1));
+          [heightBag[i], heightBag[j]] = [heightBag[j], heightBag[i]];
+        }
+      }
+      return heightBag.pop();
+    }
+
+    function startGame() {
+      state = 'playing';
+      score = 0;
+      spit = null;
+      warningUntil = 0;
+      cooldownUntil = 0;
+      playerY = player.y;
+      jumpSpeed = 0;
+      spaceHeld = false;
+      nextAttack = now() + 2.5;
+    }
+
+    function pressSpace() {
+      const time = now();
+      if (state === 'title' || state === 'gameover') {
+        startGame();
+      } else if (time >= cooldownUntil) {
+        dodgeStyle = Math.floor(Math.random() * 4);
+        jumpSpeed = -310;
+        spaceHeld = true;
+        holdUntil = time + 0.32;
+        cooldownUntil = time + 2;
+      }
+    }
+
+    addEventListener('keydown', event => {
+      if (playMode === 'multiplayer' && socket?.readyState === WebSocket.OPEN) {
+        if (event.code === 'Space' && !event.repeat) {
+          event.preventDefault();
+          socket.send(JSON.stringify({ type: 'action', action: myRole === 'llama' ? 'shoot' : 'jump' }));
+        }
+        if (myRole === 'llama' && (event.code === 'ArrowUp' || event.code === 'ArrowDown')) {
+          event.preventDefault();
+          socket.send(JSON.stringify({ type: 'action', action: 'aim', amount: event.code === 'ArrowUp' ? -8 : 8 }));
+        }
+        return;
+      }
+      if (event.code === 'Space') {
+        event.preventDefault();
+        if (!event.repeat) pressSpace();
+      }
+    });
+
+    addEventListener('keyup', event => {
+      if (playMode === 'multiplayer' && event.code === 'Space' && myRole === 'jumper') {
+        socket?.send(JSON.stringify({ type: 'action', action: 'release' }));
+        return;
+      }
+      if (event.code === 'Space') spaceHeld = false;
+    });
+
+    function launchWarning(time) {
+      warningUntil = time + 0.65;
+      nextAttack = Infinity;
+    }
+
+    function launchSpit(time) {
+      warningUntil = 0;
+      const targetY = nextSpitHeight();
+      const startX = 185;
+      const startY = llama.y - 5;
+      const vx = 400;
+      const travelTime = (player.x - startX) / vx;
+      spit = {
+        x: startX,
+        y: startY,
+        w: 15,
+        h: 10,
+        vx,
+        vy: (targetY - startY) / travelTime,
+        scored: false
+      };
+      nextAttack = time + randomAttackDelay();
+    }
+
+    function update(time, dt) {
+      if (state !== 'playing') return;
+
+      if (time >= nextAttack) launchWarning(time);
+      if (warningUntil && time >= warningUntil) launchSpit(time);
+
+      if (playerY < player.y || jumpSpeed < 0) {
+        if (spaceHeld && time < holdUntil && jumpSpeed < 0) jumpSpeed -= 520 * dt;
+        jumpSpeed += 900 * dt;
+        playerY += jumpSpeed * dt;
+        if (playerY >= player.y) {
+          playerY = player.y;
+          jumpSpeed = 0;
+          spaceHeld = false;
+        }
+      }
+
+      if (spit) {
+        spit.x += spit.vx * dt;
+        spit.y += spit.vy * dt;
+        const hit = spit.x < player.x + player.w &&
+          spit.x + spit.w > player.x &&
+          spit.y < playerY + player.h &&
+          spit.y + spit.h > playerY;
+
+        if (hit) {
+          state = 'gameover';
+        } else if (!spit.scored && spit.x > player.x + player.w) {
+          spit.scored = true;
+          score++;
+          best = Math.max(best, score);
+        }
+
+        if (spit.x > W + 30) spit = null;
+      }
+    }
+
+    function rect(x, y, w, h, color) {
+      ctx.fillStyle = color;
+      ctx.fillRect(Math.round(x), Math.round(y), w, h);
+    }
+
+    function text(value, x, y, size = 24, align = 'left', color = '#fff7d6') {
+      ctx.font = `bold ${size}px monospace`;
+      ctx.textAlign = align;
+      ctx.fillStyle = '#17122b';
+      ctx.fillText(value, x + 3, y + 3);
+      ctx.fillStyle = color;
+      ctx.fillText(value, x, y);
+    }
+
+    function drawLlama(time) {
+      const blink = Math.floor(time * 2) % 9 === 0;
+      rect(llama.x + 32, llama.y, 34, 92, '#fff0c2');
+      rect(llama.x + 48, llama.y - 28, 62, 45, '#fff0c2');
+      rect(llama.x + 55, llama.y - 46, 10, 22, '#fff0c2');
+      rect(llama.x + 90, llama.y - 46, 10, 22, '#fff0c2');
+      rect(llama.x, llama.y + 73, 76, 55, '#fff0c2');
+      rect(llama.x + 8, llama.y + 125, 13, 25, '#70435c');
+      rect(llama.x + 56, llama.y + 125, 13, 25, '#70435c');
+      rect(llama.x + 94, llama.y - 10, 29, 16, '#fff0c2');
+      rect(llama.x + 98, llama.y - 7, 6, 5, '#70435c');
+      rect(llama.x + 72, llama.y - 15, 6, blink ? 2 : 7, '#17122b');
+      if (warningUntil) text('!', llama.x + 80, llama.y - 62, 32, 'center', '#ff5577');
+    }
+
+    function drawPlayer(time) {
+      let x = player.x;
+      let y = playerY;
+      let wide = player.w;
+      let high = player.h;
+
+      if (playerY < player.y) {
+        const air = Math.min(1, (player.y - playerY) / 55);
+        if (dodgeStyle === 0) x += Math.sin(time * 20) * 4;
+        if (dodgeStyle === 1) { wide = 46; x -= 4; }
+        if (dodgeStyle === 2) x += air * 12;
+        if (dodgeStyle === 3) { wide = 32; x += 3; }
+      }
+
+      rect(x, y, wide, high, '#ff5577');
+      rect(x + 7, y - 17, 25, 20, '#ffd45c');
+      rect(x + 10, y - 13, 5, 5, '#17122b');
+      rect(x + wide - 8, y + high, 8, 10, '#17122b');
+      rect(x, y + high, 8, 10, '#17122b');
+    }
+
+    function drawMultiplayer() {
+      const snapshot = multiplayerState;
+      rect(0, 0, W, H, '#75c9c8');
+      rect(0, 270, W, 100, '#e3b85d');
+      rect(0, ground, W, H - ground, '#70435c');
+      for (let x = 0; x < W; x += 50) rect(x, ground + 34, 25, 6, '#5a334e');
+      drawLlama(now());
+
+      if (!snapshot) {
+        text('WAITING FOR GAME...', W / 2, 220, 28, 'center');
+        return;
+      }
+
+      ctx.strokeStyle = '#ff5577';
+      ctx.lineWidth = 3;
+      ctx.setLineDash([8, 8]);
+      ctx.beginPath();
+      ctx.moveTo(185, llama.y - 5);
+      ctx.lineTo(650, snapshot.aimY);
+      ctx.stroke();
+      ctx.setLineDash([]);
+
+      for (const playerState of snapshot.jumpers) {
+        if (!playerState.alive) continue;
+        rect(playerState.x, playerState.y, 38, 64, playerState.id === myId ? '#ff5577' : '#7d5cff');
+        rect(playerState.x + 7, playerState.y - 17, 25, 20, '#ffd45c');
+        rect(playerState.x + 10, playerState.y - 13, 5, 5, '#17122b');
+        text(playerState.name, playerState.x + 19, playerState.y - 25, 13, 'center');
+      }
+      for (const shot of snapshot.spits) {
+        rect(shot.x, shot.y, shot.w, shot.h, '#75e35a');
+        rect(shot.x - 7, shot.y + 3, 7, 4, '#75e35a');
+      }
+
+      text(`LLAMA: ${snapshot.llamaName}`, 18, 34, 20);
+      if (myRole === 'llama') {
+        const cooldown = (snapshot.llamaCooldown / 1000).toFixed(1);
+        text(snapshot.llamaCooldown ? `SPIT ${cooldown}s` : 'SPIT READY', W - 18, 34, 20, 'right');
+      } else {
+        text('SURVIVE!', W - 18, 34, 20, 'right', '#75e35a');
+      }
+      if (multiplayerMessage) {
+        rect(160, 160, 480, 110, 'rgba(23,18,43,.9)');
+        text(multiplayerMessage, W / 2, 225, 25, 'center', '#ffd45c');
+      }
+    }
+
+    function draw(time) {
+      rect(0, 0, W, H, '#75c9c8');
+      rect(0, 270, W, 100, '#e3b85d');
+      rect(0, ground, W, H - ground, '#70435c');
+      for (let x = 0; x < W; x += 50) rect(x, ground + 34, 25, 6, '#5a334e');
+
+      drawLlama(time);
+      drawPlayer(time);
+
+      if (spit) {
+        rect(spit.x, spit.y, 15, 10, '#75e35a');
+        rect(spit.x - 7, spit.y + 3, 7, 4, '#75e35a');
+      }
+
+      text(`SCORE ${score}`, 18, 34, 24);
+      if (state === 'playing') {
+        const left = Math.max(0, cooldownUntil - time);
+        const label = left > 0 ? `DODGE ${left.toFixed(1)}s` : 'DODGE READY';
+        text(label, W - 18, 34, 20, 'right', left > 0 ? '#fff7d6' : '#75e35a');
+        rect(W - 218, 46, 200, 10, '#17122b');
+        rect(W - 216, 48, 196 * (1 - Math.min(2, left) / 2), 6, left > 0 ? '#ffd45c' : '#75e35a');
+      }
+
+      if (state === 'title') {
+        rect(145, 125, 510, 165, 'rgba(23,18,43,.88)');
+        text('DODGE THE SPIT!', W / 2, 180, 34, 'center', '#ffd45c');
+        text('PRESS SPACE TO START', W / 2, 242, 24, 'center');
+      }
+
+      if (state === 'gameover') {
+        rect(175, 120, 450, 190, 'rgba(23,18,43,.9)');
+        text('YOU GOT SPIT ON!', W / 2, 175, 32, 'center', '#ff5577');
+        text(`SCORE ${score}   BEST ${best}`, W / 2, 225, 22, 'center');
+        text('SPACE TO TRY AGAIN', W / 2, 275, 22, 'center');
+      }
+    }
+
+    function loop(milliseconds) {
+      const time = milliseconds / 1000;
+      const dt = Math.min(0.05, time - lastTime || 0);
+      lastTime = time;
+      if (playMode === 'multiplayer') {
+        drawMultiplayer();
+      } else if (playMode === 'single') {
+        update(time, dt);
+        draw(time);
+      }
+      requestAnimationFrame(loop);
+    }
+
+    function showMenu() {
+      playMode = 'menu';
+      menu.classList.remove('hidden');
+      lobby.classList.add('hidden');
+      gameArea.classList.add('hidden');
+    }
+
+    function renderParty(party) {
+      currentParty = party;
+      partyBrowser.classList.add('hidden');
+      partyRoom.classList.remove('hidden');
+      document.querySelector('#roomName').textContent = party.name;
+      document.querySelector('#roomCode').textContent = party.id;
+      membersList.replaceChildren(...party.members.map(member => {
+        const item = document.createElement('li');
+        item.textContent = `${member.name}${member.id === party.hostId ? ' (host)' : ''}`;
+        return item;
+      }));
+      const startButton = document.querySelector('#startButton');
+      startButton.classList.toggle('hidden', party.hostId !== myId);
+      startButton.disabled = party.members.length < 2;
+      if (party.phase === 'lobby' && playMode === 'multiplayer') {
+        gameArea.classList.add('hidden');
+        lobby.classList.remove('hidden');
+      }
+    }
+
+    function renderParties(parties) {
+      partyList.replaceChildren();
+      if (!parties.length) {
+        partyList.textContent = 'No open parties yet.';
+        return;
+      }
+      for (const party of parties) {
+        const button = document.createElement('button');
+        button.textContent = `${party.name} — ${party.count} player${party.count === 1 ? '' : 's'}`;
+        button.addEventListener('click', () => {
+          const playerName = document.querySelector('#playerName').value.trim();
+          socket.send(JSON.stringify({ type: 'join', partyId: party.id, playerName }));
+        });
+        partyList.append(button);
+      }
+    }
+
+    function connectMultiplayer() {
+      if (socket && socket.readyState <= WebSocket.OPEN) return;
+      statusLine.textContent = 'Connecting…';
+      const address = location.protocol === 'file:'
+        ? 'ws://localhost:8000'
+        : `${location.protocol === 'https:' ? 'wss' : 'ws'}://${location.host}`;
+      socket = new WebSocket(address);
+      socket.addEventListener('open', () => { statusLine.textContent = ''; });
+      socket.addEventListener('close', () => {
+        statusLine.textContent = 'Offline. Start the game server, then reopen this page.';
+      });
+      socket.addEventListener('error', () => {
+        statusLine.textContent = 'Could not connect to the multiplayer server.';
+      });
+      socket.addEventListener('message', event => {
+        const data = JSON.parse(event.data);
+        if (data.type === 'welcome') { myId = data.id; renderParties(data.parties); }
+        if (data.type === 'parties') renderParties(data.parties);
+        if (data.type === 'party') renderParty(data);
+        if (data.type === 'error') statusLine.textContent = data.message;
+        if (data.type === 'started') {
+          myRole = data.roles[myId];
+          multiplayerState = null;
+          multiplayerMessage = myRole === 'llama' ? 'YOU ARE THE LLAMA!' : 'YOU ARE A JUMPER!';
+          lobby.classList.add('hidden');
+          gameArea.classList.remove('hidden');
+          controls.innerHTML = myRole === 'llama'
+            ? '<kbd>↑ ↓</kbd> aim &nbsp;•&nbsp; <kbd>SPACE</kbd> spit &nbsp;•&nbsp; 2 second cooldown'
+            : '<kbd>SPACE</kbd> jump &nbsp;•&nbsp; hold briefly for more height';
+          setTimeout(() => { multiplayerMessage = ''; }, 1600);
+        }
+        if (data.type === 'snapshot') multiplayerState = data;
+        if (data.type === 'gameover') {
+          multiplayerMessage = data.winner ? `${data.winner} WINS!` : 'GAME OVER';
+        }
+      });
+    }
+
+    document.querySelector('#singleButton').addEventListener('click', () => {
+      playMode = 'single';
+      menu.classList.add('hidden');
+      gameArea.classList.remove('hidden');
+      controls.innerHTML = '<kbd>SPACE</kbd> jump &nbsp;•&nbsp; 2 second cooldown';
+      startGame();
+    });
+
+    document.querySelector('#multiButton').addEventListener('click', () => {
+      playMode = 'multiplayer';
+      menu.classList.add('hidden');
+      lobby.classList.remove('hidden');
+      connectMultiplayer();
+    });
+
+    document.querySelector('#createButton').addEventListener('click', () => {
+      socket?.send(JSON.stringify({
+        type: 'create',
+        partyName: document.querySelector('#partyName').value,
+        playerName: document.querySelector('#playerName').value
+      }));
+    });
+
+    document.querySelector('#startButton').addEventListener('click', () => {
+      socket?.send(JSON.stringify({ type: 'start' }));
+    });
+
+    document.querySelector('#backButton').addEventListener('click', () => {
+      socket?.close();
+      socket = null;
+      currentParty = null;
+      partyRoom.classList.add('hidden');
+      partyBrowser.classList.remove('hidden');
+      showMenu();
+    });
+
+    requestAnimationFrame(loop);
+  </script>
+</body>
+</html>

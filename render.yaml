@@ -1,0 +1,10 @@
+services:
+  - type: web
+    name: llama-spit-dodge
+    runtime: node
+    region: frankfurt
+    plan: free
+    numInstances: 1
+    buildCommand: npm install
+    startCommand: npm start
+    healthCheckPath: /
