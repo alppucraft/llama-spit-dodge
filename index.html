@@ -11,7 +11,7 @@
       margin: 0;
       display: grid;
       place-items: center;
-      overflow: hidden;
+      overflow: auto;
       color: #fff7d6;
       background: #17122b;
       font-family: monospace;
@@ -30,9 +30,36 @@
     input { background: #fff7d6; }
     button { cursor: pointer; }
     button:disabled { cursor: not-allowed; opacity: .45; }
+    #mobileControls {
+      display: none;
+      justify-content: center;
+      gap: 8px;
+      margin-top: 12px;
+      touch-action: none;
+      user-select: none;
+      -webkit-user-select: none;
+    }
+    #mobileControls button {
+      min-width: 90px;
+      min-height: 58px;
+      margin: 0;
+      font-size: 18px;
+    }
+    #jumpTouch { min-width: 180px !important; }
+    #llamaTouch { display: flex; gap: 8px; }
     #partyList button { display: block; width: 100%; margin: 8px 0; }
     #members { padding: 0; list-style: none; font-size: 18px; }
     #status { min-height: 20px; color: #ff9aac; }
+    @media (pointer: coarse), (max-width: 700px) {
+      body { display: block; }
+      main { padding: 6px; }
+      h1 { margin-bottom: 6px; }
+      canvas { border-width: 3px; }
+      #mobileControls { display: flex; }
+      #controls { font-size: 12px; }
+      .panel { padding: 14px 8px; border-width: 3px; }
+      input { width: min(92%, 310px); }
+    }
     h1 { margin: 0 0 10px; color: #ffd45c; font-size: clamp(22px, 4vw, 38px); }
     canvas {
       display: block;
@@ -81,6 +108,14 @@
 
     <section id="gameArea" class="hidden">
       <canvas id="game" width="800" height="450" aria-label="Llama Spit Dodge game"></canvas>
+      <div id="mobileControls">
+        <button id="jumpTouch">HOLD TO JUMP</button>
+        <div id="llamaTouch" class="hidden">
+          <button id="aimUpTouch">AIM ↑</button>
+          <button id="spitTouch">SPIT</button>
+          <button id="aimDownTouch">AIM ↓</button>
+        </div>
+      </div>
       <p id="controls"><kbd>SPACE</kbd> jump &nbsp;•&nbsp; 2 second cooldown</p>
     </section>
   </main>
@@ -99,6 +134,8 @@
     const membersList = document.querySelector('#members');
     const statusLine = document.querySelector('#status');
     const controls = document.querySelector('#controls');
+    const jumpTouch = document.querySelector('#jumpTouch');
+    const llamaTouch = document.querySelector('#llamaTouch');
 
     let playMode = 'menu';
     let socket = null;
@@ -193,6 +230,52 @@
       }
       if (event.code === 'Space') spaceHeld = false;
     });
+
+    function multiplayerAction(action, amount) {
+      if (socket?.readyState === WebSocket.OPEN) {
+        socket.send(JSON.stringify({ type: 'action', action, amount }));
+      }
+    }
+
+    jumpTouch.addEventListener('pointerdown', event => {
+      event.preventDefault();
+      jumpTouch.setPointerCapture(event.pointerId);
+      if (playMode === 'single') pressSpace();
+      if (playMode === 'multiplayer' && myRole === 'jumper') multiplayerAction('jump');
+    });
+
+    function releaseTouchJump(event) {
+      event.preventDefault();
+      if (playMode === 'single') spaceHeld = false;
+      if (playMode === 'multiplayer' && myRole === 'jumper') multiplayerAction('release');
+    }
+
+    jumpTouch.addEventListener('pointerup', releaseTouchJump);
+    jumpTouch.addEventListener('pointercancel', releaseTouchJump);
+    document.querySelector('#spitTouch').addEventListener('pointerdown', event => {
+      event.preventDefault();
+      multiplayerAction('shoot');
+    });
+
+    function bindAimButton(id, amount) {
+      const button = document.querySelector(id);
+      let timer = null;
+      const stop = () => {
+        clearInterval(timer);
+        timer = null;
+      };
+      button.addEventListener('pointerdown', event => {
+        event.preventDefault();
+        multiplayerAction('aim', amount);
+        timer = setInterval(() => multiplayerAction('aim', amount), 110);
+      });
+      button.addEventListener('pointerup', stop);
+      button.addEventListener('pointercancel', stop);
+      button.addEventListener('pointerleave', stop);
+    }
+
+    bindAimButton('#aimUpTouch', -8);
+    bindAimButton('#aimDownTouch', 8);
 
     function launchWarning(time) {
       warningUntil = time + 0.65;
@@ -475,6 +558,8 @@
           controls.innerHTML = myRole === 'llama'
             ? '<kbd>↑ ↓</kbd> aim &nbsp;•&nbsp; <kbd>SPACE</kbd> spit &nbsp;•&nbsp; 2 second cooldown'
             : '<kbd>SPACE</kbd> jump &nbsp;•&nbsp; hold briefly for more height';
+          jumpTouch.classList.toggle('hidden', myRole === 'llama');
+          llamaTouch.classList.toggle('hidden', myRole !== 'llama');
           setTimeout(() => { multiplayerMessage = ''; }, 1600);
         }
         if (data.type === 'snapshot') multiplayerState = data;
@@ -489,6 +574,8 @@
       menu.classList.add('hidden');
       gameArea.classList.remove('hidden');
       controls.innerHTML = '<kbd>SPACE</kbd> jump &nbsp;•&nbsp; 2 second cooldown';
+      jumpTouch.classList.remove('hidden');
+      llamaTouch.classList.add('hidden');
       startGame();
     });
 
