@@ -216,6 +216,10 @@
           event.preventDefault();
           socket.send(JSON.stringify({ type: 'action', action: myRole === 'llama' ? 'shoot' : 'jump' }));
         }
+        if (myRole === 'jumper' && event.code === 'ArrowUp' && !event.repeat) {
+          event.preventDefault();
+          socket.send(JSON.stringify({ type: 'action', action: 'jump' }));
+        }
         if (myRole === 'llama' && (event.code === 'ArrowUp' || event.code === 'ArrowDown')) {
           event.preventDefault();
           socket.send(JSON.stringify({ type: 'action', action: 'aim', amount: event.code === 'ArrowUp' ? -8 : 8 }));
@@ -230,6 +234,10 @@
         event.preventDefault();
         crouching = playerY >= player.y;
       }
+      if (playMode === 'single' && event.code === 'ArrowUp') {
+        event.preventDefault();
+        if (!event.repeat) pressSpace();
+      }
       if (event.code === 'Space') {
         event.preventDefault();
         if (!event.repeat) pressSpace();
@@ -241,11 +249,16 @@
         socket?.send(JSON.stringify({ type: 'action', action: 'release' }));
         return;
       }
+      if (playMode === 'multiplayer' && event.code === 'ArrowUp' && myRole === 'jumper') {
+        multiplayerAction('release');
+        return;
+      }
       if (playMode === 'multiplayer' && event.code === 'ArrowDown' && myRole === 'jumper') {
         multiplayerAction('crouch', undefined, false);
         return;
       }
       if (playMode === 'single' && event.code === 'ArrowDown') crouching = false;
+      if (playMode === 'single' && event.code === 'ArrowUp') spaceHeld = false;
       if (event.code === 'Space') spaceHeld = false;
     });
 
@@ -630,7 +643,7 @@
           gameArea.classList.remove('hidden');
           controls.innerHTML = myRole === 'llama'
             ? '<kbd>↑ ↓</kbd> aim &nbsp;•&nbsp; <kbd>SPACE</kbd> spit &nbsp;•&nbsp; 2 second cooldown'
-            : '<kbd>SPACE</kbd> jump &nbsp;•&nbsp; <kbd>↓</kbd> crouch';
+            : '<kbd>↑</kbd> jump &nbsp;•&nbsp; <kbd>↓</kbd> crouch';
           jumpTouch.classList.toggle('hidden', myRole === 'llama');
           crouchTouch.classList.toggle('hidden', myRole === 'llama');
           llamaTouch.classList.toggle('hidden', myRole !== 'llama');
@@ -647,7 +660,7 @@
       playMode = 'single';
       menu.classList.add('hidden');
       gameArea.classList.remove('hidden');
-      controls.innerHTML = '<kbd>SPACE</kbd> jump &nbsp;•&nbsp; <kbd>↓</kbd> crouch &nbsp;•&nbsp; 2 second jump cooldown';
+      controls.innerHTML = '<kbd>↑</kbd> jump &nbsp;•&nbsp; <kbd>↓</kbd> crouch &nbsp;•&nbsp; 2 second jump cooldown';
       jumpTouch.classList.remove('hidden');
       crouchTouch.classList.remove('hidden');
       llamaTouch.classList.add('hidden');
