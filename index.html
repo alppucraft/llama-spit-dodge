@@ -45,7 +45,7 @@
       margin: 0;
       font-size: 18px;
     }
-    #jumpTouch { min-width: 180px !important; }
+    #jumpTouch, #crouchTouch { min-width: 145px !important; }
     #llamaTouch { display: flex; gap: 8px; }
     #partyList button { display: block; width: 100%; margin: 8px 0; }
     #members { padding: 0; list-style: none; font-size: 18px; }
@@ -110,6 +110,7 @@
       <canvas id="game" width="800" height="450" aria-label="Llama Spit Dodge game"></canvas>
       <div id="mobileControls">
         <button id="jumpTouch">HOLD TO JUMP</button>
+        <button id="crouchTouch">HOLD TO CROUCH</button>
         <div id="llamaTouch" class="hidden">
           <button id="aimUpTouch">AIM ↑</button>
           <button id="spitTouch">SPIT</button>
@@ -135,6 +136,7 @@
     const statusLine = document.querySelector('#status');
     const controls = document.querySelector('#controls');
     const jumpTouch = document.querySelector('#jumpTouch');
+    const crouchTouch = document.querySelector('#crouchTouch');
     const llamaTouch = document.querySelector('#llamaTouch');
 
     let playMode = 'menu';
@@ -162,6 +164,7 @@
     let playerY = player.y;
     let jumpSpeed = 0;
     let spaceHeld = false;
+    let crouching = false;
     let holdUntil = 0;
     let lastTime = 0;
     let heightBag = [];
@@ -189,6 +192,7 @@
       playerY = player.y;
       jumpSpeed = 0;
       spaceHeld = false;
+      crouching = false;
       nextAttack = now() + 2.5;
     }
 
@@ -199,6 +203,7 @@
       } else if (time >= cooldownUntil) {
         dodgeStyle = Math.floor(Math.random() * 4);
         jumpSpeed = -310;
+        crouching = false;
         spaceHeld = true;
         holdUntil = time + 0.32;
         cooldownUntil = time + 2;
@@ -215,7 +220,15 @@
           event.preventDefault();
           socket.send(JSON.stringify({ type: 'action', action: 'aim', amount: event.code === 'ArrowUp' ? -8 : 8 }));
         }
+        if (myRole === 'jumper' && event.code === 'ArrowDown') {
+          event.preventDefault();
+          socket.send(JSON.stringify({ type: 'action', action: 'crouch', active: true }));
+        }
         return;
+      }
+      if (playMode === 'single' && event.code === 'ArrowDown') {
+        event.preventDefault();
+        crouching = playerY >= player.y;
       }
       if (event.code === 'Space') {
         event.preventDefault();
@@ -228,12 +241,17 @@
         socket?.send(JSON.stringify({ type: 'action', action: 'release' }));
         return;
       }
+      if (playMode === 'multiplayer' && event.code === 'ArrowDown' && myRole === 'jumper') {
+        multiplayerAction('crouch', undefined, false);
+        return;
+      }
+      if (playMode === 'single' && event.code === 'ArrowDown') crouching = false;
       if (event.code === 'Space') spaceHeld = false;
     });
 
-    function multiplayerAction(action, amount) {
+    function multiplayerAction(action, amount, active) {
       if (socket?.readyState === WebSocket.OPEN) {
-        socket.send(JSON.stringify({ type: 'action', action, amount }));
+        socket.send(JSON.stringify({ type: 'action', action, amount, active }));
       }
     }
 
@@ -252,6 +270,19 @@
 
     jumpTouch.addEventListener('pointerup', releaseTouchJump);
     jumpTouch.addEventListener('pointercancel', releaseTouchJump);
+    crouchTouch.addEventListener('pointerdown', event => {
+      event.preventDefault();
+      crouchTouch.setPointerCapture(event.pointerId);
+      if (playMode === 'single' && playerY >= player.y) crouching = true;
+      if (playMode === 'multiplayer' && myRole === 'jumper') multiplayerAction('crouch', undefined, true);
+    });
+    const releaseCrouch = event => {
+      event.preventDefault();
+      if (playMode === 'single') crouching = false;
+      if (playMode === 'multiplayer' && myRole === 'jumper') multiplayerAction('crouch', undefined, false);
+    };
+    crouchTouch.addEventListener('pointerup', releaseCrouch);
+    crouchTouch.addEventListener('pointercancel', releaseCrouch);
     document.querySelector('#spitTouch').addEventListener('pointerdown', event => {
       event.preventDefault();
       multiplayerAction('shoot');
@@ -321,10 +352,12 @@
       if (spit) {
         spit.x += spit.vx * dt;
         spit.y += spit.vy * dt;
+        const hitY = crouching ? ground - 34 : playerY;
+        const hitHeight = crouching ? 34 : player.h;
         const hit = spit.x < player.x + player.w &&
           spit.x + spit.w > player.x &&
-          spit.y < playerY + player.h &&
-          spit.y + spit.h > playerY;
+          spit.y < hitY + hitHeight &&
+          spit.y + spit.h > hitY;
 
         if (hit) {
           state = 'gameover';
@@ -354,16 +387,43 @@
 
     function drawLlama(time) {
       const blink = Math.floor(time * 2) % 9 === 0;
-      rect(llama.x + 32, llama.y, 34, 92, '#fff0c2');
-      rect(llama.x + 48, llama.y - 28, 62, 45, '#fff0c2');
-      rect(llama.x + 55, llama.y - 46, 10, 22, '#fff0c2');
-      rect(llama.x + 90, llama.y - 46, 10, 22, '#fff0c2');
-      rect(llama.x, llama.y + 73, 76, 55, '#fff0c2');
-      rect(llama.x + 8, llama.y + 125, 13, 25, '#70435c');
-      rect(llama.x + 56, llama.y + 125, 13, 25, '#70435c');
-      rect(llama.x + 94, llama.y - 10, 29, 16, '#fff0c2');
-      rect(llama.x + 98, llama.y - 7, 6, 5, '#70435c');
-      rect(llama.x + 72, llama.y - 15, 6, blink ? 2 : 7, '#17122b');
+      const wool = '#eee4cf';
+      const shade = '#c9bca5';
+      const blue = '#177ca8';
+      const darkBlue = '#10516f';
+      const gold = '#ffd45c';
+
+      // Blocky body, long neck, head and ears.
+      rect(llama.x, llama.y + 72, 82, 57, wool);
+      rect(llama.x + 31, llama.y - 1, 35, 95, wool);
+      rect(llama.x + 45, llama.y - 31, 66, 47, wool);
+      rect(llama.x + 51, llama.y - 52, 12, 23, wool);
+      rect(llama.x + 91, llama.y - 52, 12, 23, wool);
+      rect(llama.x + 96, llama.y - 8, 31, 19, wool);
+      rect(llama.x + 108, llama.y + 7, 16, 7, shade);
+
+      // Trader blanket with gold trim and a centered emblem.
+      rect(llama.x + 5, llama.y + 76, 69, 39, darkBlue);
+      rect(llama.x + 9, llama.y + 79, 61, 29, blue);
+      rect(llama.x + 5, llama.y + 109, 69, 7, gold);
+      rect(llama.x + 34, llama.y + 83, 10, 20, gold);
+      rect(llama.x + 29, llama.y + 88, 20, 10, gold);
+
+      // Carpet tassels and square legs.
+      rect(llama.x + 10, llama.y + 116, 6, 10, gold);
+      rect(llama.x + 32, llama.y + 116, 6, 10, gold);
+      rect(llama.x + 57, llama.y + 116, 6, 10, gold);
+      rect(llama.x + 8, llama.y + 125, 14, 25, wool);
+      rect(llama.x + 59, llama.y + 125, 14, 25, wool);
+      rect(llama.x + 8, llama.y + 143, 14, 7, shade);
+      rect(llama.x + 59, llama.y + 143, 14, 7, shade);
+
+      // Blue-and-gold trader harness and face.
+      rect(llama.x + 47, llama.y - 6, 63, 6, blue);
+      rect(llama.x + 99, llama.y - 6, 7, 27, blue);
+      rect(llama.x + 101, llama.y + 15, 22, 5, gold);
+      rect(llama.x + 72, llama.y - 17, 7, blink ? 2 : 8, '#17122b');
+      rect(llama.x + 115, llama.y - 3, 6, 6, '#70435c');
       if (warningUntil) text('!', llama.x + 80, llama.y - 62, 32, 'center', '#ff5577');
     }
 
@@ -372,6 +432,13 @@
       let y = playerY;
       let wide = player.w;
       let high = player.h;
+
+      if (crouching && playerY >= player.y) {
+        y = ground - 34;
+        x -= 6;
+        wide = 50;
+        high = 34;
+      }
 
       if (playerY < player.y) {
         const air = Math.min(1, (player.y - playerY) / 55);
@@ -401,21 +468,27 @@
         return;
       }
 
-      ctx.strokeStyle = '#ff5577';
-      ctx.lineWidth = 3;
-      ctx.setLineDash([8, 8]);
-      ctx.beginPath();
-      ctx.moveTo(185, llama.y - 5);
-      ctx.lineTo(650, snapshot.aimY);
-      ctx.stroke();
-      ctx.setLineDash([]);
+      if (myRole === 'llama') {
+        ctx.strokeStyle = '#ff5577';
+        ctx.lineWidth = 3;
+        ctx.setLineDash([8, 8]);
+        ctx.beginPath();
+        ctx.moveTo(185, llama.y - 5);
+        ctx.lineTo(650, snapshot.aimY);
+        ctx.stroke();
+        ctx.setLineDash([]);
+      }
 
       for (const playerState of snapshot.jumpers) {
         if (!playerState.alive) continue;
-        rect(playerState.x, playerState.y, 38, 64, playerState.id === myId ? '#ff5577' : '#7d5cff');
-        rect(playerState.x + 7, playerState.y - 17, 25, 20, '#ffd45c');
-        rect(playerState.x + 10, playerState.y - 13, 5, 5, '#17122b');
-        text(playerState.name, playerState.x + 19, playerState.y - 25, 13, 'center');
+        const px = playerState.crouching ? playerState.x - 6 : playerState.x;
+        const py = playerState.crouching ? ground - 34 : playerState.y;
+        const pw = playerState.crouching ? 50 : 38;
+        const ph = playerState.crouching ? 34 : 64;
+        rect(px, py, pw, ph, playerState.id === myId ? '#ff5577' : '#7d5cff');
+        rect(px + 7, py - 17, 25, 20, '#ffd45c');
+        rect(px + 10, py - 13, 5, 5, '#17122b');
+        text(playerState.name, px + pw / 2, py - 25, 13, 'center');
       }
       for (const shot of snapshot.spits) {
         rect(shot.x, shot.y, shot.w, shot.h, '#75e35a');
@@ -557,8 +630,9 @@
           gameArea.classList.remove('hidden');
           controls.innerHTML = myRole === 'llama'
             ? '<kbd>↑ ↓</kbd> aim &nbsp;•&nbsp; <kbd>SPACE</kbd> spit &nbsp;•&nbsp; 2 second cooldown'
-            : '<kbd>SPACE</kbd> jump &nbsp;•&nbsp; hold briefly for more height';
+            : '<kbd>SPACE</kbd> jump &nbsp;•&nbsp; <kbd>↓</kbd> crouch';
           jumpTouch.classList.toggle('hidden', myRole === 'llama');
+          crouchTouch.classList.toggle('hidden', myRole === 'llama');
           llamaTouch.classList.toggle('hidden', myRole !== 'llama');
           setTimeout(() => { multiplayerMessage = ''; }, 1600);
         }
@@ -573,8 +647,9 @@
       playMode = 'single';
       menu.classList.add('hidden');
       gameArea.classList.remove('hidden');
-      controls.innerHTML = '<kbd>SPACE</kbd> jump &nbsp;•&nbsp; 2 second cooldown';
+      controls.innerHTML = '<kbd>SPACE</kbd> jump &nbsp;•&nbsp; <kbd>↓</kbd> crouch &nbsp;•&nbsp; 2 second jump cooldown';
       jumpTouch.classList.remove('hidden');
+      crouchTouch.classList.remove('hidden');
       llamaTouch.classList.add('hidden');
       startGame();
     });

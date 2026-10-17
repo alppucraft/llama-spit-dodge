@@ -109,6 +109,7 @@ function startGame(party) {
       y: 306,
       vy: 0,
       alive: true,
+      crouching: false,
       cooldown: 0,
       holdUntil: 0
     };
@@ -166,10 +167,12 @@ function action(client, data) {
     const player = game.jumpers[client.id];
     if (player?.alive && data.action === 'jump' && time >= player.cooldown && player.y >= 306) {
       player.vy = -310;
+      player.crouching = false;
       player.cooldown = time + 2000;
       player.holdUntil = time + 320;
     }
     if (player && data.action === 'release') player.holdUntil = 0;
+    if (player?.alive && data.action === 'crouch') player.crouching = Boolean(data.active) && player.y >= 306;
   }
 }
 
@@ -208,13 +211,16 @@ setInterval(() => {
       player.vy += 900 * dt;
       player.y += player.vy * dt;
       if (player.y > 306) { player.y = 306; player.vy = 0; }
+      if (player.y < 306) player.crouching = false;
     }
     for (const spit of game.spits) {
       spit.x += spit.vx * dt;
       spit.y += spit.vy * dt;
       for (const player of Object.values(game.jumpers)) {
         if (!player.alive) continue;
-        if (spit.x < player.x + 38 && spit.x + spit.w > player.x && spit.y < player.y + 64 && spit.y + spit.h > player.y) {
+        const hitY = player.crouching ? 336 : player.y;
+        const hitHeight = player.crouching ? 34 : 64;
+        if (spit.x < player.x + 38 && spit.x + spit.w > player.x && spit.y < hitY + hitHeight && spit.y + spit.h > hitY) {
           player.alive = false;
         }
       }
