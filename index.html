@@ -50,6 +50,15 @@
     #partyList button { display: block; width: 100%; margin: 8px 0; }
     #members { padding: 0; list-style: none; font-size: 18px; }
     #status { min-height: 20px; color: #ff9aac; }
+    #canvasWrap { position: relative; }
+    #lobbyButton {
+      position: absolute;
+      z-index: 2;
+      left: 50%;
+      top: 74%;
+      transform: translate(-50%, -50%);
+      min-width: 150px;
+    }
     @media (pointer: coarse), (max-width: 700px) {
       body { display: block; }
       main { padding: 6px; }
@@ -107,7 +116,10 @@
     </section>
 
     <section id="gameArea" class="hidden">
-      <canvas id="game" width="800" height="450" aria-label="Llama Spit Dodge game"></canvas>
+      <div id="canvasWrap">
+        <canvas id="game" width="800" height="450" aria-label="Llama Spit Dodge game"></canvas>
+        <button id="lobbyButton" class="hidden">LOBBY</button>
+      </div>
       <div id="mobileControls">
         <button id="jumpTouch">HOLD TO JUMP</button>
         <button id="crouchTouch">HOLD TO CROUCH</button>
@@ -135,6 +147,7 @@
     const membersList = document.querySelector('#members');
     const statusLine = document.querySelector('#status');
     const controls = document.querySelector('#controls');
+    const lobbyButton = document.querySelector('#lobbyButton');
     const jumpTouch = document.querySelector('#jumpTouch');
     const crouchTouch = document.querySelector('#crouchTouch');
     const llamaTouch = document.querySelector('#llamaTouch');
@@ -185,6 +198,7 @@
 
     function startGame() {
       state = 'playing';
+      lobbyButton.classList.add('hidden');
       score = 0;
       spit = null;
       warningUntil = 0;
@@ -374,6 +388,7 @@
 
         if (hit) {
           state = 'gameover';
+          if (playMode === 'single') lobbyButton.classList.remove('hidden');
         } else if (!spit.scored && spit.x > player.x + player.w) {
           spit.scored = true;
           score++;
@@ -573,6 +588,7 @@
 
     function showMenu() {
       playMode = 'menu';
+      lobbyButton.classList.add('hidden');
       menu.classList.remove('hidden');
       lobby.classList.add('hidden');
       gameArea.classList.add('hidden');
@@ -692,6 +708,12 @@
       currentParty = null;
       partyRoom.classList.add('hidden');
       partyBrowser.classList.remove('hidden');
+      showMenu();
+    });
+
+    lobbyButton.addEventListener('click', () => {
+      state = 'title';
+      spit = null;
       showMenu();
     });
 
