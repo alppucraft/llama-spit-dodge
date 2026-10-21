@@ -19,7 +19,7 @@
     main { width: min(960px, 100%); padding: 12px; text-align: center; }
     .panel { max-width: 620px; margin: 0 auto; padding: 24px; border: 6px solid #fff7d6; background: #342650; }
     .hidden { display: none !important; }
-    button, input {
+    button, input, select {
       margin: 6px;
       padding: 10px 14px;
       border: 3px solid #fff7d6;
@@ -27,7 +27,7 @@
       background: #ffd45c;
       font: bold 16px monospace;
     }
-    input { background: #fff7d6; }
+    input, select { background: #fff7d6; }
     button { cursor: pointer; }
     button:disabled { cursor: not-allowed; opacity: .45; }
     #mobileControls {
@@ -91,6 +91,14 @@
       <button id="multiButton">MULTIPLAYER</button>
     </section>
 
+    <section id="difficultyMenu" class="panel hidden">
+      <h2>CHOOSE DIFFICULTY</h2>
+      <button id="normalButton">NORMAL</button>
+      <button id="hardButton">HARD</button>
+      <p>Hard mode makes the llama spit faster.</p>
+      <button id="difficultyBackButton">BACK</button>
+    </section>
+
     <section id="lobby" class="panel hidden">
       <div id="partyBrowser">
         <h2>MULTIPLAYER LOBBY</h2>
@@ -99,6 +107,10 @@
         <hr>
         <h3>CREATE YOUR OWN PARTY</h3>
         <input id="partyName" maxlength="24" placeholder="New party name">
+        <select id="partyDifficulty" aria-label="Party difficulty">
+          <option value="normal">NORMAL</option>
+          <option value="hard">HARD</option>
+        </select>
         <button id="createButton">CREATE PARTY</button>
         <hr>
         <h3>ALL OPEN PARTIES</h3>
@@ -139,6 +151,7 @@
     ctx.imageSmoothingEnabled = false;
 
     const menu = document.querySelector('#menu');
+    const difficultyMenu = document.querySelector('#difficultyMenu');
     const lobby = document.querySelector('#lobby');
     const gameArea = document.querySelector('#gameArea');
     const partyBrowser = document.querySelector('#partyBrowser');
@@ -159,6 +172,7 @@
     let currentParty = null;
     let multiplayerState = null;
     let multiplayerMessage = '';
+    let difficulty = 'normal';
 
     const W = canvas.width;
     const H = canvas.height;
@@ -183,7 +197,9 @@
     let heightBag = [];
 
     const now = () => performance.now() / 1000;
-    const randomAttackDelay = () => 2.4 + Math.random() * 3.8;
+    const randomAttackDelay = () => difficulty === 'hard'
+      ? 1.6 + Math.random() * 2.6
+      : 2.4 + Math.random() * 3.8;
 
     function nextSpitHeight() {
       if (!heightBag.length) {
@@ -345,7 +361,7 @@
       const targetY = nextSpitHeight();
       const startX = 185;
       const startY = llama.y - 5;
-      const vx = 400;
+      const vx = difficulty === 'hard' ? 440 : 400;
       const travelTime = (player.x - startX) / vx;
       spit = {
         x: startX,
@@ -590,6 +606,7 @@
       playMode = 'menu';
       lobbyButton.classList.add('hidden');
       menu.classList.remove('hidden');
+      difficultyMenu.classList.add('hidden');
       lobby.classList.add('hidden');
       gameArea.classList.add('hidden');
     }
@@ -598,7 +615,7 @@
       currentParty = party;
       partyBrowser.classList.add('hidden');
       partyRoom.classList.remove('hidden');
-      document.querySelector('#roomName').textContent = party.name;
+      document.querySelector('#roomName').textContent = `${party.name} — ${party.difficulty.toUpperCase()}`;
       document.querySelector('#roomCode').textContent = party.id;
       membersList.replaceChildren(...party.members.map(member => {
         const item = document.createElement('li');
@@ -622,7 +639,7 @@
       }
       for (const party of parties) {
         const button = document.createElement('button');
-        button.textContent = `${party.name} — ${party.count} player${party.count === 1 ? '' : 's'}`;
+        button.textContent = `${party.name} [${party.difficulty.toUpperCase()}] — ${party.count} player${party.count === 1 ? '' : 's'}`;
         button.addEventListener('click', () => {
           const playerName = document.querySelector('#playerName').value.trim();
           socket.send(JSON.stringify({ type: 'join', partyId: party.id, playerName }));
@@ -673,19 +690,30 @@
     }
 
     document.querySelector('#singleButton').addEventListener('click', () => {
-      playMode = 'single';
       menu.classList.add('hidden');
+      difficultyMenu.classList.remove('hidden');
+    });
+
+    function startSinglePlayer(level) {
+      difficulty = level;
+      playMode = 'single';
+      difficultyMenu.classList.add('hidden');
       gameArea.classList.remove('hidden');
-      controls.innerHTML = '<kbd>↑</kbd> jump &nbsp;•&nbsp; <kbd>↓</kbd> crouch &nbsp;•&nbsp; 2 second jump cooldown';
+      controls.innerHTML = `<strong>${level.toUpperCase()}</strong> &nbsp;•&nbsp; <kbd>↑</kbd> jump &nbsp;•&nbsp; <kbd>↓</kbd> crouch &nbsp;•&nbsp; 2 second jump cooldown`;
       jumpTouch.classList.remove('hidden');
       crouchTouch.classList.remove('hidden');
       llamaTouch.classList.add('hidden');
       startGame();
-    });
+    }
+
+    document.querySelector('#normalButton').addEventListener('click', () => startSinglePlayer('normal'));
+    document.querySelector('#hardButton').addEventListener('click', () => startSinglePlayer('hard'));
+    document.querySelector('#difficultyBackButton').addEventListener('click', showMenu);
 
     document.querySelector('#multiButton').addEventListener('click', () => {
       playMode = 'multiplayer';
       menu.classList.add('hidden');
+      difficultyMenu.classList.add('hidden');
       lobby.classList.remove('hidden');
       connectMultiplayer();
     });
@@ -694,7 +722,8 @@
       socket?.send(JSON.stringify({
         type: 'create',
         partyName: document.querySelector('#partyName').value,
-        playerName: document.querySelector('#playerName').value
+        playerName: document.querySelector('#playerName').value,
+        difficulty: document.querySelector('#partyDifficulty').value
       }));
     });
 

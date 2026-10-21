@@ -29,7 +29,7 @@ const send = (ws, data) => ws.readyState === WebSocket.OPEN && ws.send(JSON.stri
 function publicParties() {
   return [...parties.values()]
     .filter(party => party.phase === 'lobby')
-    .map(party => ({ id: party.id, name: party.name, count: party.members.size }));
+    .map(party => ({ id: party.id, name: party.name, difficulty: party.difficulty, count: party.members.size }));
 }
 
 function broadcastParties() {
@@ -42,6 +42,7 @@ function partyMessage(party) {
     type: 'party',
     id: party.id,
     name: party.name,
+    difficulty: party.difficulty,
     hostId: party.hostId,
     phase: party.phase,
     members: [...party.members.values()].map(member => ({ id: member.id, name: member.name }))
@@ -68,13 +69,21 @@ function leaveParty(client) {
   broadcastParties();
 }
 
-function createParty(client, name, playerName) {
+function createParty(client, name, playerName, difficulty) {
   leaveParty(client);
   const cleanName = String(name || '').trim().slice(0, 24);
   const cleanPlayer = String(playerName || '').trim().slice(0, 16);
   if (!cleanName || !cleanPlayer) return send(client.ws, { type: 'error', message: 'Enter both names.' });
   const id = Math.random().toString(36).slice(2, 8).toUpperCase();
-  const party = { id, name: cleanName, hostId: client.id, phase: 'lobby', members: new Map(), game: null };
+  const party = {
+    id,
+    name: cleanName,
+    difficulty: difficulty === 'hard' ? 'hard' : 'normal',
+    hostId: client.id,
+    phase: 'lobby',
+    members: new Map(),
+    game: null
+  };
   client.name = cleanPlayer;
   client.partyId = id;
   party.members.set(client.id, client);
@@ -123,6 +132,7 @@ function startGame(party) {
     aimY: 330,
     shootCooldown: 0,
     started: Date.now(),
+    difficulty: party.difficulty,
     over: false
   };
   broadcast(party, {
@@ -161,7 +171,7 @@ function action(client, data) {
       const vx = 400;
       const travel = (650 - startX) / vx;
       game.spits.push({ x: startX, y: startY, vx, vy: (game.aimY - startY) / travel, w: 15, h: 10 });
-      game.shootCooldown = time + 2000;
+      game.shootCooldown = time + (game.difficulty === 'hard' ? 1100 : 2000);
     }
   } else {
     const player = game.jumpers[client.id];
@@ -183,7 +193,7 @@ wss.on('connection', ws => {
   ws.on('message', raw => {
     let data;
     try { data = JSON.parse(raw); } catch { return; }
-    if (data.type === 'create') createParty(client, data.partyName, data.playerName);
+    if (data.type === 'create') createParty(client, data.partyName, data.playerName, data.difficulty);
     if (data.type === 'join') joinParty(client, data.partyId, data.playerName);
     if (data.type === 'start') {
       const party = parties.get(client.partyId);
