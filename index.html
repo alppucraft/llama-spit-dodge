@@ -119,9 +119,10 @@
       <div id="partyRoom" class="hidden">
         <h2 id="roomName"></h2>
         <p>Party code: <strong id="roomCode"></strong></p>
+        <p>One llama faces all other players. The last dodger alive wins!</p>
         <ul id="members"></ul>
         <button id="startButton">START GAME</button>
-        <p>At least two players are needed.</p>
+        <p>At least three players are needed.</p>
       </div>
       <p id="status"></p>
       <button id="backButton">BACK</button>
@@ -624,7 +625,8 @@
       }));
       const startButton = document.querySelector('#startButton');
       startButton.classList.toggle('hidden', party.hostId !== myId);
-      startButton.disabled = party.members.length < 2;
+      startButton.disabled = party.members.length < 3;
+      startButton.textContent = party.members.length < 3 ? 'NEED 3 PLAYERS' : 'START GAME';
       if (party.phase === 'lobby' && playMode === 'multiplayer') {
         gameArea.classList.add('hidden');
         lobby.classList.remove('hidden');
