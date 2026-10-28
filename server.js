@@ -107,7 +107,7 @@ function joinParty(client, id, playerName) {
 
 function startGame(party) {
   const ids = [...party.members.keys()];
-  if (ids.length < 3) return send(party.members.get(party.hostId).ws, { type: 'error', message: 'At least three players are required: one llama and two dodgers.' });
+  if (ids.length < 2) return send(party.members.get(party.hostId).ws, { type: 'error', message: 'Two players are required: one llama and one dodger.' });
   const llamaId = ids[Math.floor(Math.random() * ids.length)];
   const jumpers = {};
   ids.filter(id => id !== llamaId).forEach((id, index, all) => {
@@ -127,6 +127,7 @@ function startGame(party) {
   party.game = {
     llamaId,
     jumpers,
+    initialJumpers: Object.keys(jumpers).length,
     spits: [],
     aimY: 330,
     shootCooldown: 0,
@@ -232,7 +233,8 @@ setInterval(() => {
         if (spit.x < player.x + 38 && spit.x + spit.w > player.x && spit.y < hitY + hitHeight && spit.y + spit.h > hitY) {
           player.alive = false;
           const survivors = Object.values(game.jumpers).filter(jumper => jumper.alive);
-          if (survivors.length === 1) {
+          if ((game.initialJumpers === 1 && survivors.length === 0) ||
+              (game.initialJumpers > 1 && survivors.length === 1)) {
             endGame(party, 'Last dodger alive');
             break;
           }

@@ -11,6 +11,8 @@ npm start
 
 Open `http://localhost:8000` in a browser.
 
+Multiplayer parties can start with two players: one player is the llama and the other is the dodger.
+
 For multiplayer on the same Wi-Fi, other players open `http://YOUR-COMPUTER-IP:8000`.
 For internet multiplayer, deploy this folder to a Node.js host that supports WebSockets.
 

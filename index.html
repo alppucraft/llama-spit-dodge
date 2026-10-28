@@ -122,7 +122,7 @@
         <p>One llama faces all other players. The last dodger alive wins!</p>
         <ul id="members"></ul>
         <button id="startButton">START GAME</button>
-        <p>At least three players are needed.</p>
+        <p>Two players are enough: one llama and one dodger.</p>
       </div>
       <p id="status"></p>
       <button id="backButton">BACK</button>
@@ -625,8 +625,10 @@
       }));
       const startButton = document.querySelector('#startButton');
       startButton.classList.toggle('hidden', party.hostId !== myId);
-      startButton.disabled = party.members.length < 3;
-      startButton.textContent = party.members.length < 3 ? 'NEED 3 PLAYERS' : 'START GAME';
+      startButton.disabled = party.members.length < 2;
+      startButton.textContent = party.members.length < 2
+        ? 'NEED 2 PLAYERS'
+        : party.members.length === 2 ? 'START 2-PLAYER GAME' : 'START GAME';
       if (party.phase === 'lobby' && playMode === 'multiplayer') {
         gameArea.classList.add('hidden');
         lobby.classList.remove('hidden');
